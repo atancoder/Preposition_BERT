@@ -1,136 +1,22 @@
+# type: ignore
+import copy
+import random
+
+import sentencepiece as spm
 import torch
 from datasets import load_dataset
 from torch import nn
 from torch.nn import functional
 from torch.utils.data import DataLoader, TensorDataset
+from transformers import BertTokenizerFast
 
-DEVICE = "cpu"
+from model import CONTEXT_LENGTH, BERTModel
+from prepositions import PREPOSITIONS_LIST
+
 BATCH_SIZE = 64
-import numpy as np
-
 torch.manual_seed(1337)
 
-EMBEDDING_SIZE = 512  # C aka channels
-BATCH_SIZE = 16  # B
-CONTEXT_LENGTH = 100  # T aka Time Steps
-NUM_HEADS = 4
-NUM_TRANSFORMER_BLOCKS = 2
-
-
-class AttentionHead(nn.Module):
-    """
-    Uses K,Q,V Attention
-    """
-
-    def __init__(self, head_size: int):
-        super().__init__()
-        self.K = nn.Linear(EMBEDDING_SIZE, head_size, bias=False)
-        self.Q = nn.Linear(EMBEDDING_SIZE, head_size, bias=False)
-        self.V = nn.Linear(EMBEDDING_SIZE, head_size, bias=False)
-
-    def forward(self, x):
-        """
-        x is the embedding
-        """
-        B, T, C = x.shape
-        k = self.K(x)  # (B,T,C)
-        q = self.Q(x)  # (B,T,C)
-        # compute attention scores ("affinities")
-        # k needs to be transposed to (B,C,T)
-        att_scores = q @ k.transpose(-2, -1) * C**-0.5
-        att_scores = functional.softmax(att_scores, dim=-1)  # (B, T, T)
-        # perform the weighted aggregation of the values
-        v = self.V(x)  # (B,T,C)
-        out = att_scores @ v  # (B, T, T) @ (B, T, C) -> (B, T, C)
-        return out
-
-
-class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads, head_size):
-        super().__init__()
-        self.heads = nn.ModuleList([AttentionHead(head_size) for _ in range(num_heads)])
-        self.linear = nn.Linear(EMBEDDING_SIZE, EMBEDDING_SIZE)
-
-    def forward(self, x):
-        out = torch.cat([h(x) for h in self.heads], dim=-1)  # concat column wise
-        out = self.linear(out)
-        return out
-
-
-class FeedFoward(nn.Module):
-    def __init__(self, input_size):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_size, 4 * input_size),  # 4 is the scalar used in the paper
-            nn.ReLU(),
-            nn.Linear(4 * input_size, input_size),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class Block(nn.Module):
-    """Transformer block: communication followed by computation"""
-
-    def __init__(self, n_embd, n_head):
-        # n_embd: embedding dimension, n_head: the number of heads we'd like
-        super().__init__()
-        if n_embd % n_head != 0:
-            raise Exception("Embedding size must be divisible by number of heads")
-        head_size = n_embd // n_head
-        self.multi_head_attention = MultiHeadAttention(n_head, head_size)
-        self.feed_forward = FeedFoward(n_embd)
-        self.ln_pre_attention = nn.LayerNorm(n_embd)
-        self.ln_pre_feed_forward = nn.LayerNorm(n_embd)
-
-    def forward(self, x):
-        """
-        Use residual connections
-        Layer norm prior the input prior to attention and feed forward
-        """
-        x = x + self.multi_head_attention(self.ln_pre_attention(x))
-        x = x + self.feed_forward(self.ln_pre_feed_forward(x))
-        return x
-
-
-class BERTModel(nn.Module):
-    def __init__(self, vocab_size):
-        super().__init__()
-        # each token directly reads off the logits for the next token from a lookup table
-        self.token_embedding_table = nn.Embedding(vocab_size, EMBEDDING_SIZE)
-        self.position_embedding_table = nn.Embedding(CONTEXT_LENGTH, EMBEDDING_SIZE)
-        self.blocks = nn.Sequential(
-            *[
-                Block(EMBEDDING_SIZE, n_head=NUM_HEADS)
-                for _ in range(NUM_TRANSFORMER_BLOCKS)
-            ]
-        )
-        self.final_layer_norm = nn.LayerNorm(EMBEDDING_SIZE)  # final layer norm
-        self.final_linear = nn.Linear(EMBEDDING_SIZE, vocab_size)
-
-    def forward(self, vocab_idx, target_vocab_indices=None):
-        B, T = vocab_idx.shape
-
-        # vocab_idx and target_vocab_indices are both (B,T) tensor of integers
-        tok_emb = self.token_embedding_table(vocab_idx)  # (B,T,C)
-
-        # Convert all position integers into an embedding
-        pos_emb = self.position_embedding_table(torch.arange(T, device=DEVICE))  # (T,C)
-        x = tok_emb + pos_emb  # (B,T,C)
-        x = self.blocks(x)  # (B,T,C)
-        x = self.final_layer_norm(x)  # (B,T,C)
-        logits = self.lm_head(x)  # (B,T,vocab_size)
-
-        if target_vocab_indices is None:
-            loss = None
-        else:
-            B, T, C = logits.shape
-            logits = logits.view(B * T, C)
-            target_vocab_indices = target_vocab_indices.view(B * T)
-            loss = functional.cross_entropy(logits, target_vocab_indices)
-
-        return logits, loss
+import numpy as np
 
 
 def get_books_dataloader():
@@ -139,11 +25,75 @@ def get_books_dataloader():
 
     # Access the train split
     train_dataset = bookcorpus["train"]
-    return DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    return DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+
+def mask_out(tokens, tokenizer, preposition_tokens, vocab_list):
+    """
+    Masks out prepositions
+    Returns the sentence tokens with some [MASK] tokens and 2D array of tokens masked
+    """
+    tokens = copy.deepcopy(tokens)
+    masked_indices = []
+    for token_batch in tokens:
+        batch_masked_indicies = []
+        for i in range(len(token_batch)):
+            token = token_batch[i]
+            if token == tokenizer.pad_token:
+                break
+            if token in preposition_tokens:
+                rand = random.random()
+                if rand <= 0.5:
+                    # mask out
+                    token_batch[i] = tokenizer.mask_token
+                elif rand <= 0.8:
+                    random_token = random.choice(vocab_list)
+                    token_batch[i] = random_token
+                else:
+                    pass
+                batch_masked_indicies.append(i)
+        masked_indices.append(batch_masked_indicies)
+    return tokens, masked_indices
+
+
+def right_pad(token_sentence, tokenizer):
+    num_to_pad = CONTEXT_LENGTH - len(token_sentence)
+    token_sentence += [tokenizer.pad_token] * num_to_pad
+    return token_sentence
+
+
+def get_preposition_tokens(tokenizer):
+    tokens = set()
+    for p in PREPOSITIONS_LIST:
+        tokens |= set(tokenizer.tokenize(p))
+    return tokens
 
 
 def main():
     books_dataloader = get_books_dataloader()
+    tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
+    vocab_list = list(tokenizer.vocab.keys())
+    model = BERTModel(tokenizer.vocab_size)
+    preposition_tokens = get_preposition_tokens(tokenizer)
+    for batch in books_dataloader:
+        orig_sentences = batch["text"]
+        token_orig_sentences = [
+            right_pad(tokenizer.tokenize(sentence), tokenizer)
+            for sentence in orig_sentences
+        ]
+        token_masked_sentences, masked_indices = mask_out(
+            token_orig_sentences, tokenizer, preposition_tokens, vocab_list
+        )
+        token_id_orig_sentences = [
+            tokenizer.convert_tokens_to_ids(tokens) for tokens in token_orig_sentences
+        ]
+        token_id_masked_sentences = [
+            tokenizer.convert_tokens_to_ids(tokens) for tokens in token_masked_sentences
+        ]
+        import pdb
+
+        pdb.set_trace()
+        model(token_id_masked_sentences, (masked_indices, token_id_orig_sentences))
 
 
 if __name__ == "__main__":
