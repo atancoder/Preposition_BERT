@@ -7,14 +7,21 @@ from torch import nn
 from torch.nn import functional
 from torch.utils.data import DataLoader, TensorDataset
 
-DEVICE = "cpu"
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
+print(f"Using {DEVICE} device")
 EMBEDDING_SIZE = 32  # C aka channels
 CONTEXT_LENGTH = 512  # T aka Time Steps
 NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 2
 
 
-def flatten_indices(batch_indices: List[List[int]]) -> np.array:
+def flatten_indices(batch_indices: List[List[int]]) -> List[int]:
     """
     Flattens the batch_indices list into 1D
     Assumes each batch has CONTEXT_LENGTH indices
@@ -24,10 +31,11 @@ def flatten_indices(batch_indices: List[List[int]]) -> np.array:
     [0,3] -> [4,7] because it's the 2nd batch
     """
     flattened_indices: List[int] = []
-    for batch_id in range(len(batch_indices)):
+    for batch_id, batch in enumerate(batch_indices):
         batch_start_idx = batch_id * CONTEXT_LENGTH
-        flattened_indices += batch_indices[batch_id] + batch_start_idx
-    return np.array(flattened_indices)
+        new_indices = [batch_start_idx + idx for idx in batch]
+        flattened_indices += new_indices
+    return flattened_indices
 
 
 class BERTModel(nn.Module):
@@ -54,7 +62,7 @@ class BERTModel(nn.Module):
         x = token_emb + pos_emb  # (B,T,C)
         x = self.blocks(x)  # (B,T,C)
         x = self.final_layer_norm(x)  # (B,T,C)
-        logits = self.lm_head(x)  # (B,T,vocab_size)
+        logits = self.final_linear(x)  # (B,T,vocab_size)
 
         if target_info is None:
             loss = None
@@ -63,7 +71,7 @@ class BERTModel(nn.Module):
             flat_indices = flatten_indices(masked_indices)
             B, T, C = logits.shape
             logits = logits.view(B * T, C)[flat_indices]
-            target_sentence_tokens = target_sentence_tokens[flat_indices]
+            target_sentence_tokens = target_sentence_tokens.view(B * T)[flat_indices]
             # Subset logits only to timesteps we care about
             loss = functional.cross_entropy(logits, target_sentence_tokens)
 
