@@ -9,26 +9,18 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from utils import flatten_indices
 
-DEVICE = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
-    else "cpu"
-)
-print(f"Using {DEVICE} device")
 EMBEDDING_SIZE = 32  # C aka channels
-CONTEXT_LENGTH = 512  # T aka Time Steps
 NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 2
 
 
 class BERTModel(nn.Module):
-    def __init__(self, vocab_size):
+    def __init__(self, vocab_size, context_length, device):
         super().__init__()
+        self.context_length = context_length
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, EMBEDDING_SIZE)
-        self.position_embedding_table = nn.Embedding(CONTEXT_LENGTH, EMBEDDING_SIZE)
+        self.position_embedding_table = nn.Embedding(context_length, EMBEDDING_SIZE)
         self.blocks = nn.Sequential(
             *[
                 Block(EMBEDDING_SIZE, n_head=NUM_HEADS)
@@ -37,13 +29,16 @@ class BERTModel(nn.Module):
         )
         self.final_layer_norm = nn.LayerNorm(EMBEDDING_SIZE)  # final layer norm
         self.final_linear = nn.Linear(EMBEDDING_SIZE, vocab_size)
+        self.device = device
 
     def forward(self, sentence_tokens, target_info: Optional[Tuple] = None):
         B, T = sentence_tokens.shape
         token_emb = self.token_embedding_table(sentence_tokens)  # (B,T,C)
 
         # Convert all position integers into an embedding
-        pos_emb = self.position_embedding_table(torch.arange(T, device=DEVICE))  # (T,C)
+        pos_emb = self.position_embedding_table(
+            torch.arange(T, device=self.device)
+        )  # (T,C)
         x = token_emb + pos_emb  # (B,T,C)
         x = self.blocks(x)  # (B,T,C)
         x = self.final_layer_norm(x)  # (B,T,C)
@@ -53,7 +48,7 @@ class BERTModel(nn.Module):
             loss = None
         else:
             masked_indices, target_sentence_tokens = target_info
-            flat_indices = flatten_indices(masked_indices, CONTEXT_LENGTH)
+            flat_indices = flatten_indices(masked_indices, self.context_length)
             B, T, C = logits.shape
             logits = logits.view(B * T, C)[flat_indices]
             target_sentence_tokens = target_sentence_tokens.view(B * T)[flat_indices]
