@@ -10,12 +10,11 @@ from transformers import BertTokenizerFast
 
 from model import CONTEXT_LENGTH, DEVICE, BERTModel
 from prepositions import PREPOSITIONS_LIST
+from utils import flatten_indices
 
 BATCH_SIZE = 64
 LEARNING_RATE = 1e-4
 torch.manual_seed(1337)
-
-import numpy as np
 
 
 def get_books_dataloader():
@@ -94,16 +93,36 @@ def predict(model, batch, tokenizer):
         masked_sentences_tokens,
         masked_indices,
     ) = batch_to_token_ids(batch, tokenizer)
-
     model.eval()
     with torch.no_grad():
         logits, _ = model(masked_sentences_tokens)  # (B,T,C)
         B, T, C = logits.shape
-        probabilities = functional.softmax(logits, dim=-1)
-        probabilities = probabilities.view(B * T, C)
+        logits = logits.view(B * T, C)
+        flat_indices = flatten_indices(masked_indices, CONTEXT_LENGTH)
+        relevant_logits = logits[flat_indices]
+        probabilities = functional.softmax(relevant_logits, dim=-1)
         predicted_tokens = torch.multinomial(probabilities, num_samples=1)
-        predicted_tokens = predicted_tokens.view(B, T)
-        sentences = tokenizer.batch_decode(predicted_tokens)
+        sentences = []
+        predicted_tokens_ptr = 0
+        for batch_id in range(len(masked_sentences_tokens)):
+            relevant_masked_indices = masked_indices[batch_id]
+            batch_predicted_tokens = predicted_tokens[
+                predicted_tokens_ptr : predicted_tokens_ptr
+                + len(relevant_masked_indices)
+            ].reshape(-1)
+            masked_sentences_tokens[batch_id][
+                relevant_masked_indices
+            ] = batch_predicted_tokens
+            predicted_tokens_ptr += len(relevant_masked_indices)
+
+        sentences = tokenizer.batch_decode(masked_sentences_tokens)
+
+        for i in range(0, 10):
+            orig_sentence = tokenizer.decode(orig_sentences_tokens[i])
+            orig_sentence = orig_sentence[: orig_sentence.index(tokenizer.pad_token)]
+            new_sentence = sentences[i][: sentences[i].index(tokenizer.pad_token)]
+            print(f"Orig sentence: {orig_sentence}")
+            print(f"Pred sentence: {new_sentence}\n\n")
         return sentences
 
 
@@ -137,8 +156,8 @@ def main():
     tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
     model = BERTModel(tokenizer.vocab_size)
     model.to(DEVICE)
-    train(model, books_dataloader, tokenizer)
-    # predict(model, next(iter(books_dataloader)), tokenizer)
+    # train(model, books_dataloader, tokenizer)
+    predict(model, next(iter(books_dataloader)), tokenizer)
 
 
 if __name__ == "__main__":

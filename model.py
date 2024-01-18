@@ -7,6 +7,8 @@ from torch import nn
 from torch.nn import functional
 from torch.utils.data import DataLoader, TensorDataset
 
+from utils import flatten_indices
+
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
@@ -19,23 +21,6 @@ EMBEDDING_SIZE = 32  # C aka channels
 CONTEXT_LENGTH = 512  # T aka Time Steps
 NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 2
-
-
-def flatten_indices(batch_indices: List[List[int]]) -> List[int]:
-    """
-    Flattens the batch_indices list into 1D
-    Assumes each batch has CONTEXT_LENGTH indices
-
-    e.g [[1,3], [0, 3]]  -> [1,3,4,7]
-
-    [0,3] -> [4,7] because it's the 2nd batch
-    """
-    flattened_indices: List[int] = []
-    for batch_id, batch in enumerate(batch_indices):
-        batch_start_idx = batch_id * CONTEXT_LENGTH
-        new_indices = [batch_start_idx + idx for idx in batch]
-        flattened_indices += new_indices
-    return flattened_indices
 
 
 class BERTModel(nn.Module):
@@ -68,7 +53,7 @@ class BERTModel(nn.Module):
             loss = None
         else:
             masked_indices, target_sentence_tokens = target_info
-            flat_indices = flatten_indices(masked_indices)
+            flat_indices = flatten_indices(masked_indices, CONTEXT_LENGTH)
             B, T, C = logits.shape
             logits = logits.view(B * T, C)[flat_indices]
             target_sentence_tokens = target_sentence_tokens.view(B * T)[flat_indices]
