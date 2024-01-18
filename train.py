@@ -30,4 +30,5 @@ def train(model, dataloader, tokenizer, context_length, learning_rate, device):
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
             print(f"{int((time.time() - start) / 60)} minutes have elapsed")
             if batch_id % 1000 == 0:
-                torch.save(model, "model.pt")
+                print("Saving model")
+                torch.save(model.state_dict(), "model.pt")
