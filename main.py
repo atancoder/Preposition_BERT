@@ -34,8 +34,8 @@ def main():
             torch.load(MODEL_PT_FILE, map_location=torch.device(DEVICE))
         )
     model.to(DEVICE)
-    train(model, books_dataloader, tokenizer, CONTEXT_LENGTH, LEARNING_RATE, DEVICE)
-    # predict(model, next(iter(books_dataloader)), tokenizer, CONTEXT_LENGTH, DEVICE)
+    # train(model, books_dataloader, tokenizer, CONTEXT_LENGTH, LEARNING_RATE, DEVICE)
+    predict(model, next(iter(books_dataloader)), tokenizer, CONTEXT_LENGTH, DEVICE)
 
 
 if __name__ == "__main__":
