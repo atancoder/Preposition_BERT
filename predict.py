@@ -1,3 +1,5 @@
+import copy
+
 import torch
 from torch.nn import functional
 
@@ -21,23 +23,29 @@ def predict(model, batch, tokenizer, context_length, device):
         predicted_tokens = torch.multinomial(probabilities, num_samples=1)
         sentences = []
         predicted_tokens_ptr = 0
-        for batch_id in range(len(masked_sentences_tokens)):
+        predicted_sentence_tokens = copy.deepcopy(masked_sentences_tokens)
+        for batch_id in range(len(predicted_sentence_tokens)):
             relevant_masked_indices = masked_indices[batch_id]
             batch_predicted_tokens = predicted_tokens[
                 predicted_tokens_ptr : predicted_tokens_ptr
                 + len(relevant_masked_indices)
             ].reshape(-1)
-            masked_sentences_tokens[batch_id][
+            predicted_sentence_tokens[batch_id][
                 relevant_masked_indices
             ] = batch_predicted_tokens
             predicted_tokens_ptr += len(relevant_masked_indices)
 
-        sentences = tokenizer.batch_decode(masked_sentences_tokens)
+        sentences = tokenizer.batch_decode(predicted_sentence_tokens)
 
         for i in range(0, 10):
             orig_sentence = tokenizer.decode(orig_sentences_tokens[i])
             orig_sentence = orig_sentence[: orig_sentence.index(tokenizer.pad_token)]
+            masked_sentence = tokenizer.decode(masked_sentences_tokens[i])
+            masked_sentence = masked_sentence[
+                : masked_sentence.index(tokenizer.pad_token)
+            ]
             new_sentence = sentences[i][: sentences[i].index(tokenizer.pad_token)]
             print(f"Orig sentence: {orig_sentence}")
+            print(f"Mask sentence: {masked_sentence}")
             print(f"Pred sentence: {new_sentence}\n\n")
         return sentences

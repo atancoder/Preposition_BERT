@@ -9,9 +9,9 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from utils import flatten_indices
 
-EMBEDDING_SIZE = 32  # C aka channels
+EMBEDDING_SIZE = 768  # C aka channels
 NUM_HEADS = 4
-NUM_TRANSFORMER_BLOCKS = 2
+NUM_TRANSFORMER_BLOCKS = 4
 
 
 class BERTModel(nn.Module):
