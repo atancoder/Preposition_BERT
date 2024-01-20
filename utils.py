@@ -64,9 +64,17 @@ def mask_out(token_ids, tokenizer, preposition_tokens_ids, vocab_token_ids):
     return token_ids, masked_indices
 
 
-def right_pad(token_ids, pad_token_id, context_length):
+def right_pad_and_truncate(token_ids, pad_token_id, context_length):
+    """
+    Ensures token length = context length
+    will pad with 0s or truncate the tokens
+    """
     num_to_pad = context_length - len(token_ids)
-    token_ids += [pad_token_id] * num_to_pad
+    if num_to_pad > 0:
+        token_ids += [pad_token_id] * num_to_pad
+    else:
+        print(f"Truncating sentence of size: {len(token_ids)}")
+        token_ids = token_ids[:context_length]
     return token_ids
 
 
@@ -83,7 +91,9 @@ def batch_to_token_ids(batch_sentences, tokenizer, context_length, device):
     vocab_token_ids = get_vocab_token_ids(tokenizer)
     orig_sentences = batch_sentences["text"]
     orig_sentences_tokens = [
-        right_pad(tokenizer.encode(sentence), tokenizer.pad_token_id, context_length)
+        right_pad_and_truncate(
+            tokenizer.encode(sentence), tokenizer.pad_token_id, context_length
+        )
         for sentence in orig_sentences
     ]
     orig_sentences_tokens = torch.tensor(orig_sentences_tokens)

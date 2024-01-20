@@ -16,9 +16,9 @@ DEVICE = (
     else "cpu"
 )
 print(f"Using {DEVICE} device")
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 LEARNING_RATE = 1e-3
-CONTEXT_LENGTH = 512  # T aka Time Steps
+CONTEXT_LENGTH = 128  # T aka Time Steps
 
 torch.manual_seed(1337)
 MODEL_PT_FILE = "model.pt"
@@ -34,8 +34,8 @@ def main():
             torch.load(MODEL_PT_FILE, map_location=torch.device(DEVICE))
         )
     model.to(DEVICE)
-    # train(model, books_dataloader, tokenizer, CONTEXT_LENGTH, LEARNING_RATE, DEVICE)
-    predict(model, next(iter(books_dataloader)), tokenizer, CONTEXT_LENGTH, DEVICE)
+    train(model, books_dataloader, tokenizer, CONTEXT_LENGTH, LEARNING_RATE, DEVICE)
+    # predict(model, next(iter(books_dataloader)), tokenizer, CONTEXT_LENGTH, DEVICE)
 
 
 if __name__ == "__main__":
