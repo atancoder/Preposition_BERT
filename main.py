@@ -19,6 +19,7 @@ print(f"Using {DEVICE} device")
 BATCH_SIZE = 256
 LEARNING_RATE = 1e-3
 CONTEXT_LENGTH = 128  # T aka Time Steps
+# context length must be <= model's MAX_CONTEXT_LENGTH
 
 torch.manual_seed(1337)
 MODEL_PT_FILE = "model.pt"

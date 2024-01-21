@@ -12,6 +12,7 @@ from utils import flatten_indices
 EMBEDDING_SIZE = 768  # C aka channels
 NUM_HEADS = 4
 NUM_TRANSFORMER_BLOCKS = 4
+MAX_CONTEXT_LENGTH = 128
 
 
 class BERTModel(nn.Module):
@@ -20,7 +21,7 @@ class BERTModel(nn.Module):
         self.context_length = context_length
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, EMBEDDING_SIZE)
-        self.position_embedding_table = nn.Embedding(context_length, EMBEDDING_SIZE)
+        self.position_embedding_table = nn.Embedding(MAX_CONTEXT_LENGTH, EMBEDDING_SIZE)
         self.blocks = nn.Sequential(
             *[
                 Block(EMBEDDING_SIZE, n_head=NUM_HEADS)
