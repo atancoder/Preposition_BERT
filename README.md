@@ -23,5 +23,6 @@ Will need to spend more time tuning the model as I don't have the resources to r
 
 Todo
 - Verify my model's architecture is complex enough by seeing if I can overfit a small portion of the training data. Try to find the smallest model possible so I can be computationally efficient.
-- Find the best hyperparameters (such as learning rate) 
+- Find the best hyperparameters (such as learning rate)
+- Make the pretrained model available on HuggingFace
 
