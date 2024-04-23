@@ -1,4 +1,4 @@
-## BERT
+## Preposition BERT
 
 Implement my own version of [BERT]([url](https://aclanthology.org/N19-1423.pdf)https://aclanthology.org/N19-1423.pdf) but with a twist. Since I don't have 
 the resources to train a full fledged LLM, I wanted to just train the LLM to predict prepositions. 
